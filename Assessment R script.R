@@ -1,0 +1,274 @@
+#File Pathways for all relevant documents
+em = read.table("C:/Users/Sam Morley/Documents/R module/Assessment/EM (1).csv", header=TRUE,row.names=1, sep= "\t")
+DE_control_vs_combo = read.table("C:/Users/Sam Morley/Documents/R module/Assessment/DE_control_vs_combo.csv", header=TRUE,row.names=1, sep= "\t")
+annotations = read.table("C:/Users/Sam Morley/Documents/R module/Assessment/annotations (1).csv", header=TRUE,row.names=1, sep= "\t")
+sample_sheet = read.table("C:/Users/Sam Morley/Documents/R module/Assessment/sample_sheet (1).csv", header=TRUE,row.names=1, sep= "\t")
+#NOTE: "read.table" loads in the specific table
+#NOTE: "HEADER:" and "row.names" load in the names for the columns and rows, "sep= "\t"" means it's tab deliminated
+
+#Installations and loading programs (Don't install unless already uninstalled!)
+#Installs
+install.packages("ggrepel")
+#Loading code
+#Used for GGplots
+library(ggplot2)
+#Used for melting
+library(reshape2) 
+#Used for heat maps
+library(amap)
+#Used for placing text correctly
+library(repel)
+
+#Parsing
+
+#More sensible names
+names(annotations) = new_names = c("gene_name","chromosome","start","stop")
+
+#merge()function puts two tables together
+master_temp= merge(em,annotations, by.x=0, by.y=0)
+
+#Second merge because you can only merge two things at a time
+master= merge(master_temp, DE_control_vs_combo, by.x=1, by.y=0)
+
+#Changing row names to something more readable(gene)
+row.names(master) = master[,"gene_name"]
+
+#EM_symbols table with just gene and expression values
+em_symbols= master [,2:7]
+
+#Omitting entries so they don't create problem down the line
+master = na.omit(master)
+
+#ordering entries by P-value
+order(master[,"p"], decreasing=FALSE)
+sorted_order = order(master[,"p"], decreasing=FALSE)
+master = master[sorted_order,]
+
+#Adding new data columns for analysis 
+#NOTE:mlog10p is actually -log10p, R just doesn't like it written like that
+master$mean = (rowMeans(master[,2:7]))
+master$mlog10p = -log10(master $p)
+master$sig = as.factor(master$p.adj < 0.05 & abs(master$log2fold) > 1.0)
+
+#Making a scaled expression matrix
+#NOTE: T() function transposes the data since data can only be scaled by row
+#NOTE: scale() function scales the results to standardise it
+#NOTE: data.frame() function puts the information back into a data frame
+
+#Finished scale using ABOVE functions
+em_scaled_temp=(data.frame(scale(t(em_symbols))))
+em_scaled=na.omit(em_scaled_temp)
+
+#Making a subset of the table for significant genes with expression values AND analysis
+master_sig = subset(master, p.adj < 0.05 & abs(log2fold) >1)
+
+#Making a subset with JUST significant gene names
+sig_genes=row.names(master_sig)
+
+#Making a subset of of the table for significant genes with JUST expression values
+em_symbols_sig = em_symbols[sig_genes,]
+
+#scale of significant genes using em_symbols_sig 
+#NOTE: See lines 45-47 for function info
+em_symbol_scaled_temp=t(data.frame(scale(t(em_symbols_sig))))
+em_scaled_sig=na.omit(em_symbol_scaled_temp)
+
+#Splitting up master table by type of significant and insignificance
+master_non_sig = subset(master, p.adj > 0.05)
+master_sig_up= subset(master, p.adj < 0.05 & log2fold > 1)
+master_sig_down= subset(master, p.adj < 0.05 & log2fold < -1)
+
+#Get the 5 most significant from down and upregulated
+master_sig_up_top5 = master_sig_up[1:5,]
+master_sig_down_top5 = master_sig_down[1:5,]
+
+#binding the 3 separate tables back together to display whether a gene is significantly up regulated, down regulated, or non-significant
+#the rbind() function stitches tables together as well as the data is the same in the column
+master_non_sig$direction = "a"
+master_sig_up$direction = "b"
+master_sig_down$direction = "c"
+master = rbind(master_non_sig, master_sig_up, master_sig_down)
+
+#Parsing data for one particular gene (used in box, violin and jitter plots)
+gene_data = em_symbols["TSPAN6",]
+gene_data = data.frame(t(gene_data))
+gene_data$sample_group = sample_sheet$sample_group
+names(gene_data) = c("expression","sample_group")
+gene_data$sample_group = factor(gene_data$sample_group, levels=c("control", "combo"))
+
+#Parsing data for 10 genes (used in boxplots etc)
+
+candidate_genes= em_symbols[1:10,]
+candidate_genes = data.frame(scale(t(candidate_genes)))
+candidate_genes$sample_group = sample_sheet$sample_group
+
+#Performing a melt
+candidate_genes.m = melt(candidate_genes, id.vars="sample_group")
+#NOTE: This can be done for more genes for a better comparison
+
+#Clustering data (For heat mapping)
+em_scaled_sig_top10= subset(em_scaled_sig[1:30,])
+hm.matrix = as.matrix(em_scaled_sig_top10)
+y.dist = Dist(hm.matrix, method="spearman")
+y.cluster = hclust(y.dist, method="average")
+y.dd = as.dendrogram(y.cluster)
+y.dd.reorder = reorder(y.dd,0,FUN="average")
+y.order = order.dendrogram(y.dd.reorder)
+hm.matrix_clustered = hm.matrix[y.order,]
+hm.matrix_clustered = melt(hm.matrix_clustered)
+
+#Colouring for heat mapping
+colours = c("blue","red")
+colorRampPalette(colours)(100)
+
+#saving expression tables to disk
+write.table("master", file="C:/Users/Sam Morley/Documents/R module/Assessment/master.cvs", sep="\t")
+write.table("em_symbols", file="C:/Users/Sam Morley/Documents/R module/Assessment/em_symbols.cvs", sep="\t")
+write.table("em_scaled", file="C:/Users/Sam Morley/Documents/R module/Assessment/em_scaled.cvs", sep="\t")
+write.table("master_sig", file="C:/Users/Sam Morley/Documents/R module/Assessment/master_sig.cvs", sep="\t")
+write.table("em_symbols_sig", file="C:/Users/Sam Morley/Documents/R module/Assessment/em_symbols_sig.cvs", sep="\t")
+write.table("em_scaled_sig", file="C:/Users/Sam Morley/Documents/R module/Assessment/em_scaled_sig.cvs", sep="\t")
+#NOTE: "write.table" uploads the specific table up the pathway
+
+#GG plots
+#NOTE: Go back to load "GGplot2" if not already done
+
+#Creating a standard theme for all plots
+#NOTE: Don't skip! important to increase readability and nuance
+
+my_theme = theme(
+  plot.title = element_text(size=15),
+  axis.text.x = element_text(size=16),
+  axis.text.y = element_text(size=16),
+  axis.title.x = element_text(size=15),
+  axis.title.y = element_text(size=15)
+)
+
+#Plot 1:Volcano plots
+#NOTE: functions etc explained throughout!
+
+ggp_volcano_plot = ggplot(master, aes(x=log2fold, y=mlog10p,colour= direction)) + geom_point() +
+#aes() function gives parameters to the plot, with colour grouping different groups based on direction, geom_point() makes a scatter plot
+scale_colour_manual(values = c("black", "red", "blue"), labels=c("non-significant", "up regulated","down regulated"))+
+#scale_colour_manual manually dictates colours, labels labels the groups specific by colour=
+labs(title="effect of the treatment combo on gene regulation", x="log2fold", y="-log10p")+
+#labels the axis' and gives a title
+my_theme +
+#Explain on line ""
+geom_vline(xintercept= -1)+
+geom_vline(xintercept= 1)+
+geom_hline(yintercept=-log10(0.05))+
+geom_vline(xintercept=1, linetype="dashed", color = "grey", size=0.5)+
+#Creates lines to better show relevant information
+xlim(c(-10, 10))+
+ylim(c(0, 60))+
+#lim() function cuts off parts of the graph to streamline data
+geom_text_repel(data=master_sig_up_top5, aes(label= gene_name), position = position_nudge(x = 0)) +
+geom_text_repel(data=master_sig_down_top5, aes(label= gene_name), position = position_nudge(x = 0))
+#Creates test for relevant data points
+
+#Code for downloading figure outside of R
+png("C:/Users/Sam Morley/Documents/R module/Assessment/figures/volcano_plot", height = 400, width = 400)
+print(ggp_volcano_plot)
+dev.off()
+
+#Plot 2: MA plots
+#NOTE: lines explained in volcanoe plot
+ggp_MA_plot = ggplot(master, aes(x=log10(mean), y=log2fold))+
+geom_point(aes(colour="a")) +
+geom_point(data= master_sig_up, aes(colour="b")) +
+geom_point(data= master_sig_down, aes(colour= "c"))+
+scale_colour_manual(values = c("black", "red", "blue"), labels=c("non-significant", "up regulated","down regulated"))+
+labs(title="MA plot gene expression and intesity", x="log10(mean)", y="log2fold")+
+my_theme +
+xlim(c(0, 5))+
+ylim(c(-10, 10))+
+geom_text_repel(data=master_sig_up_top5, aes(label=gene_name), position = position_nudge(x = 0)) +
+geom_text_repel(data=master_sig_down_top5, aes(label=gene_name), position = position_nudge(x = 0)) 
+
+png("C:/Users/Sam Morley/Documents/R module/Assessment/figures/MA_plot", height = 400, width = 400)
+print(ggp_MA_plot)
+dev.off()
+
+#Plot 3: PCA plots
+
+#Making the PCA
+#NOTE: the as.matrix(sapply()) function turns the item into a matrix OF numerics
+#NOTE: the prcomp() function helps to standardise the data
+em.nm = as.matrix(sapply(em_symbols, as.numeric))
+pca = prcomp(t(em.nm))
+pca_coordinates = data.frame(pca$x)
+
+#Adding in sample group
+pca_coordinates$sample_group= c("control", "control", "control", "combo", "combo", "combo")
+
+#Plotting the PCA plot
+#NOTE: information about functions at ""
+ggp_PCA_plot = ggplot(pca_coordinates, aes(x=PC1, y=PC2, colour=sample_group))+ geom_point()+
+scale_color_manual(values=c( "red", "blue"))+
+labs(title= "PCA plot showing clustering between samples", x=PC1, y=PC2)+
+my_theme
+
+#For show variance because the prcomp() function doesn't (pre-written code, don't tinker with it!)
+vars = apply(pca$x, 2, var)
+prop_x = round(vars["PC1"] / sum(vars),4) * 100
+prop_y = round(vars["PC2"] / sum(vars),4) * 100
+
+PC1 = paste("PC1 ", " (",prop_x, "%)",sep="")
+PC2 = paste("PC2 ", " (",prop_y, "%)",sep="")
+
+
+#Saving it 
+
+png("C:/Users/Sam Morley/Documents/R module/Assessment/figures/PCA_plot", height = 400, width = 400)
+print(ggp_PCA_plot)
+dev.off()
+
+
+#Plot 4: Density mapping
+
+ggp_DM_PC1 = ggplot (pca_coordinates, aes(x=log10(PC1))) + geom_density(colour= "red")
+ggp_DM_PC2 = ggplot (pca_coordinates, aes(x=log10(PC2))) + geom_density(colour= "blue")
+ggp_DM_PC3 = ggplot (pca_coordinates, aes(x=log10(PC3))) + geom_density(colour= "blue")
+ggp_DM_PC4 = ggplot (pca_coordinates, aes(x=log10(PC4))) + geom_density(colour= "blue")
+ggp_DM_PC5 = ggplot (pca_coordinates, aes(x=log10(PC5))) + geom_density(colour= "blue")
+ggp_DM_PC6 = ggplot (pca_coordinates, aes(x=log10(PC6))) + geom_density(colour= "blue")
+
+#Plot 5: boxplot(1 gene)
+ggp_box_plot = ggplot(gene_data, aes(x=sample_group, y=expression,)) + geom_boxplot(size = 2, outlier.size = 0, alpha = 0.5, colour = "black")
+
+#Plot 6: jitterplot
+ggp_jitter_plot = ggplot(gene_data, aes(x=sample_group, y=expression, colour = sample_group, fill = sample_group) ) + geom_jitter(width = 0.1, colour = "black")
+
+#Plot 7: violin plot
+ggp_violin_plot = ggplot(gene_data, aes(x=sample_group, y=expression, colour = sample_group ,fill = sample_group) ) + geom_violin( alpha = 0.5, trim=TRUE, show.legend=FALSE)
+
+#NOTE: these 3 plots can be ran together in one plot!
+
+#Plot i'm going to use in assignment
+ggp_jitter_violin_plot = ggplot(gene_data, aes(x=sample_group, y=expression, colour = sample_group, fill = sample_group) ) + geom_jitter(width = 0.1,) + geom_violin( alpha = 0.5, trim=TRUE, show.legend=FALSE)
+
+png("C:/Users/Sam Morley/Documents/R module/Assessment/figures/jitter_violin_plot", height = 400, width = 400)
+print(ggp_jitter_violin_plot)
+dev.off()
+
+#Plot 8: Boxplot(10 genes)
+#Note: can be used to create better jitter and violin plots!
+ggp_10_gene_box_plot = ggplot(candidate_genes.m,aes(x=variable,y=value, fill=sample_group)) + geom_boxplot()+
+theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Plot 9: heat mapping
+ggp_heatmap = ggplot(hm.matrix_clustered,aes(x=Var2,y=Var1, fill=value)) + geom_tile()+
+ylab("genes")+
+xlab("samples")+
+labs(title="Heatmap of relevant genes", x="samples", y="genes", fill="expression")+
+scale_fill_gradientn(colours = colorRampPalette(colours)(100))+
+theme(axis.text.y = element_blank(), axis.ticks=element_blank(), legend.title = expression,legend.spacing.x = unit(0.25, 'cm'))
+
+#Colouring the heatmap
+colours = c("blue","red")
+colorRampPalette(colours)(100)
+
+png("C:/Users/Sam Morley/Documents/R module/Assessment/figures/heatmap", height = 400, width = 400)
+print(ggp_heatmap)
+dev.off()
